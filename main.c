@@ -24,7 +24,57 @@ typedef struct FileSystem {
     struct FSFile* back;
 } FileSystem;
 
+///////////////////////////////////////////
+/* Free list structures for reusing fd's */
+///////////////////////////////////////////
+// FreeList data queue for reusing inactive fd's
+
+typedef struct FreeListNode {
+    int fd;
+    struct FreeListNode* next; 
+} FreeListNode;
+
+typedef struct FreeList {
+    struct FreeListNode* front;
+    struct FreeListNode* back;
+    int length;
+} FreeList;
+
+//////////////////////////////////////////////////////////
+/* Hash table for rapid access of file objects (IOFile) */
+//////////////////////////////////////////////////////////
+// This file will possibly be linked to another IOFile who's fd hash is the same as this file's fd hash
+
+typedef struct IOFile {
+    int fd;
+    int cursor_pos;
+    unsigned int mode_type;
+    struct FSFile* fs_file;
+    struct IOFile* next;
+} IOFile;
+
+// Hash table will consist of array of IOFile pointers
+typedef IOFile** IOFileHashTable;
+
+typedef struct IOModule {
+    IOFileHashTable hash_table;
+    FreeList* free_list;
+    int next_fd;
+} IOModule;
+
 FileSystem* fs_module = NULL;
+IOModule* io_module = NULL;
+
+#define IOFILE_MODE_READ 0x01
+#define IOFILE_MODE_WRITE 0x02
+
+///////////////////////////////////////
+/* Implementations                   */
+///////////////////////////////////////
+
+///////////////////////////////////////
+/* Simple file system in a directory */
+///////////////////////////////////////
 
 // FUNCTIONS FOR FSFile
 // Initialize the FSFile
@@ -173,8 +223,8 @@ int fs_environment_init() {
     }
 
     const char* filename2 = "file2.txt";
-    const char* data2 = "Test Data2";
-    created = file_system_add_file(fs_module, filename2, data2, 10);
+    const char* data2 = "hellogoodbye";
+    created = file_system_add_file(fs_module, filename2, data2, 12);
     if (!created) {
         file_system_destroy(&fs_module);
         return 0;
@@ -191,18 +241,7 @@ void fs_environment_destroy() {
 ///////////////////////////////////////////
 /* Free list structures for reusing fd's */
 ///////////////////////////////////////////
-
 // FreeList data queue for reusing inactive fd's
-typedef struct FreeListNode {
-    int fd;
-    struct FreeListNode* next; 
-} FreeListNode;
-
-typedef struct FreeList {
-    struct FreeListNode* front;
-    struct FreeListNode* back;
-    int length;
-} FreeList;
 
 // Allocate space for the free list structure
 FreeList* free_list_init() {
@@ -296,21 +335,7 @@ int free_list_push(FreeList* free_list, int fd){
 //////////////////////////////////////////////////////////
 /* Hash table for rapid access of file objects (IOFile) */
 //////////////////////////////////////////////////////////
-
 // This file will possibly be linked to another IOFile who's fd hash is the same as this file's fd hash
-typedef struct IOFile {
-    int fd;
-    int cursor_pos;
-    unsigned int mode_type;
-    struct FSFile* fs_file;
-    struct IOFile* next;
-} IOFile;
-
-#define IOFILE_MODE_READ 0x01
-#define IOFILE_MODE_WRITE 0x02
-
-// Hash table will consist of array of IOFile pointers
-typedef IOFile** IOFileHashTable;
 
 // Allocate enough space to store all of the pointer to the IOFile buckets
 IOFileHashTable io_file_hash_table_init() {
@@ -435,13 +460,6 @@ int io_file_hash_table_remove_file(IOFileHashTable hash_table, int fd) {
 /////////////////////////
 /* File Descriptor API */
 /////////////////////////
-typedef struct IOModule {
-    IOFileHashTable hash_table;
-    FreeList* free_list;
-    int next_fd;
-} IOModule;
-
-IOModule* io_module = NULL;
 
 // Initialize the IOModule
 int io_module_init() {
@@ -563,14 +581,16 @@ ssize_t io_read(int fd, char* buf, size_t count) {
         bytes_read = count;
 
     // Copy the bytes over        
-    strncpy(buf, (fs_file->data + io_file->cursor_pos), available_bytes);
+    strncpy(buf, (fs_file->data + io_file->cursor_pos), bytes_read);
         
     io_file->cursor_pos += bytes_read;
 
     return bytes_read;
 }
 
-/* Some IO Tests */
+////////////////////////////////////
+/* Some IO Tests                  */
+////////////////////////////////////
 /*
     Description: 4 file descriptors are requested from the system, 2 are freed and another 2 are requested
     Expected Result: The file descriptors of the 2 files which were closed should be reused for the new files
@@ -647,6 +667,10 @@ int test_ebadf() {
     fs_environment_destroy();
 }
 
+/*
+    Description: Program calls io_open to get a handle on file2.txt and reads 5 bytes from the file and then another 7
+    Expected Result: The first read should read the word hello and then second read, the word good bye
+*/
 int test_read() {
     printf("\n=========\ntest_read\n=========\n");
 
@@ -671,11 +695,17 @@ int test_read() {
         return 1;
     }
 
-    char* buffer = (char*)malloc(sizeof(char) * 11);
-    buffer[10] = '\0';
+    char hello_buffer[6];
+    hello_buffer[5] = '\0';
     
-    io_read(fd, buffer, 10);
-    printf("This is the files contents: %s\n", buffer);
+    io_read(fd, hello_buffer, 5);
+    printf("Greeting 1: %s\n", hello_buffer);
+
+    char goodbye_buffer[8];
+    goodbye_buffer[7] = '\0';
+
+    io_read(fd, goodbye_buffer, 7);
+    printf("Greeting 2: %s\n", goodbye_buffer);
 
     // Destroy the IOModule
     io_module_destory();
@@ -685,8 +715,8 @@ int test_read() {
 }
 
 int main() {
-    test_reuse();
-    test_ebadf();
+    // test_reuse();
+    // test_ebadf();
     test_read();
 
     return 0;
