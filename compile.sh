@@ -1,1 +1,1 @@
-gcc -g freelist.c -o main
+gcc -g main.c -o main
