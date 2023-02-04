@@ -165,12 +165,13 @@ int main() {
     list_push_back(list, 7);
 
     int a;
-    list_remove(list, 2, &a);
-    list_remove(list, 1, &a);
+    // list_remove(list, 2, &a);
+    // list_remove(list, 1, &a);
 
+    printf("%d\n", list->length);
     int b;
     int r = list_find(list, find_neg, &b);
-    printf("%d\n", r);
+    printf("%d\n", b);
 
     list_destroy(list);
 
